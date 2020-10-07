@@ -1,0 +1,13 @@
+;barman
+grasp 2
+leave 2
+fill-shot 5
+refill-shot 5
+empty-shot 3
+clean-shot 4
+pour-shot-to-clean-shaker 6
+pour-shot-to-used-shaker 6
+empty-shaker 5
+clean-shaker 3
+shake 6
+pour-shaker-to-shot 6

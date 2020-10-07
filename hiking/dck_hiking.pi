@@ -1,0 +1,30 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [DCK_state0,DCK_state1,DCK_state2,DCK_state3,DCK_state4,DCK_state5,DCK_state6].
+
+% arity for each added predicate
+table
+pred_arity(DCK_state0,1).
+pred_arity(DCK_state1,2).
+pred_arity(DCK_state2,2).
+pred_arity(DCK_state3,2).
+pred_arity(DCK_state4,2).
+pred_arity(DCK_state5,2).
+pred_arity(DCK_state6,2).
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [].
+
+% workaround solution for Undefined procedure exception when predicate is not present in goal state
+dummyPredicates(D) => D = [].
+
+%%% type tests %%%
+is_place(M) => member(M,place_list()).
+place_list() = ML => ML = get_global_map(objectsMap).get(place).
+
+is_person(M) => member(M,person_list()).
+person_list() = ML => ML = get_global_map(objectsMap).get(person).
+
+%%% rule definition %%%
+
+% all workers are in default state
+DCK_state0(M) => i_at_person(_,M).

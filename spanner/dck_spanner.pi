@@ -1,0 +1,73 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [dck_default,spanner_cnt,nuts_cnt,need_cnt,min_cnt,next_cnt].
+
+% arity for each added predicate
+table
+pred_arity(dck_default,1).
+pred_arity(spanner_cnt,2).
+pred_arity(nuts_cnt,2).
+pred_arity(need_cnt,1).
+pred_arity(min_cnt,1).
+pred_arity(next_cnt,2).
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [].
+
+% additional types we need to define
+addTypeList(TL) => TL = [count].
+
+%%% constant definitions %%%
+% we need list of constants for each new type
+
+getConstants(count,List) =>
+	MinCount = 0,
+	MaxCount = tightened_nut_cnt(),
+	NumList = [X: X in MinCount .. MaxCount],
+	List = [Sym: Cnt in NumList, Sym = to_atom(to_fstring("c%u",Cnt))].
+
+% workaround solution for Undefined procedure exception when predicate is not present in goal state
+dummyPredicates(D) => D = [].
+
+%%% type tests %%%
+is_man(M) => member(M,man_list()).
+man_list() = ML => ML = get_global_map(objectsMap).get(man).
+
+is_location(M) => member(M,location_list()).
+location_list() = ML => ML = get_global_map(objectsMap).get(location).
+
+is_spanner(M) => member(M,spanner_list()).
+spanner_list() = ML => ML = get_global_map(objectsMap).get(spanner).
+
+is_nut(M) => member(M,nut_list()).
+nut_list() = ML => ML = get_global_map(objectsMap).get(nut).
+
+is_count(M) => member(M,count_list()).
+count_list() = ML => ML = get_global_map(objectsMap).get(count).
+
+%%% rule definition %%%
+
+% all workers are in default state
+dck_default(M) => is_man(M).
+
+% count spanners for each location
+spanner_cnt(Loc,CntSym) => is_location(Loc), Cnt = length(findall(S,(is_spanner(S),i_at(S,Loc)))), CntSym = to_fstring("c%u",Cnt). 
+
+% count nuts for each location
+nuts_cnt(Loc,CntSym) => is_location(Loc), Cnt = length(findall(N,(is_nut(N),i_at(N,Loc)))), CntSym = to_fstring("c%u",Cnt). 
+
+% define minimal counter
+min_cnt(MC) => MC = c0.
+
+% helper function to count nuts to be tightened
+tightened_nut_cnt() = GC => GC = length(findall(N,(g_tightened(N)))).
+
+% define maximal counter
+need_cnt(NC) => NC = to_fstring("c%u",tightened_nut_cnt()).
+
+% helper function to construct list of pairs 
+next_pairs() = Pairs =>
+	CountList = count_list(),
+	Pairs = zip(CountList,tail(CountList)).
+
+% define next_cnt
+next_cnt(Prev,Next) => P = next_pairs(), member({Prev,Next},P).

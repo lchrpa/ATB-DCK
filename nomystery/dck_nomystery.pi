@@ -1,0 +1,70 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [min_cnt,next_cnt,mToLoad,mToDeliver].
+
+% arity for each added predicate
+table
+pred_arity(min_cnt,1).
+pred_arity(next_cnt,2).
+pred_arity(mToLoad,2).
+pred_arity(mToDeliver,2).
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [g_at].
+
+% additional types we need to define
+addTypeList(TL) => TL = [count].
+
+%%% constant definitions %%%
+% we need list of constants for each new type
+
+getConstants(count,List) =>
+	MinCount = 0,
+	MaxCount = max_package_count(),
+	NumList = [X: X in MinCount .. MaxCount],
+	List = [Sym: Cnt in NumList, Sym = to_atom(to_fstring("c%u",Cnt))].
+
+% workaround solution for Undefined procedure exception when predicate is not present in goal state
+dummyPredicates(D) => D = [].
+
+%%% type tests %%%
+is_count(M) => member(M,count_list()).
+count_list() = ML => ML = get_global_map(objectsMap).get(count).
+
+is_package(M) => member(M,package_list()).
+package_list() = ML => ML = get_global_map(objectsMap).get(package).
+
+is_truck(M) => member(M,truck_list()).
+truck_list() = ML => ML = get_global_map(objectsMap).get(truck).
+
+is_location(M) => member(M,location_list()).
+location_list() = ML => ML = get_global_map(objectsMap).get(location).
+
+%%% rule definition %%%
+
+% each package that is not at its goal location is counted
+mToLoad(Loc,CntSym) => is_location(Loc), CntNum = count_packages_to_load(Loc), CntSym = to_fstring("c%u",CntNum). 
+
+count_packages_to_load(Loc) = Cnt =>
+	LoadList = [P: P in package_list(), i_at(P,Loc), g_at(P,L2), Loc != L2], Cnt = length(LoadList).
+
+% each package that should be at Loc and is somewhere else is counted
+mToDeliver(Loc,CntSym) => is_location(Loc), min_cnt(CntSym). 
+
+count_packages_to_deliver(Loc) = Cnt =>
+	DeliverList = [P: P in package_list(), i_at(P,L1), g_at(P,Loc), L1 != Loc], Cnt = length(DeliverList).
+
+% define minimal counter
+min_cnt(MC) => MC = c0.
+
+% helper function to construct list of pairs 
+next_pairs() = Pairs =>
+	CountList = count_list(),
+	Pairs = zip(CountList,tail(CountList)).
+
+% define next_cnt
+next_cnt(Prev,Next) => P = next_pairs(), member({Prev,Next},P).
+
+% define maximal count (maximal number of packages to load or deliver)
+max_package_count() = M => CntList = [PkgCnt: L in location_list(), PkgCnt = count_packages_to_load(L)]
+				++   [PkgCnt: L in location_list(), PkgCnt = count_packages_to_deliver(L)],
+			   M = max(CntList).

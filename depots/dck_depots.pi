@@ -1,0 +1,65 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [mg_at,s_goodtower,s_badtower].
+
+% arity for each added predicate
+table
+pred_arity(mg_at,2).
+pred_arity(s_goodtower,1).
+pred_arity(s_badtower,1).
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [g_on].
+
+% additional types we need to define
+addTypeList(TL) => TL = [].
+
+%%% constant definitions %%%
+% we need list of constants for each new type
+
+%getConstants(count,List) =>
+
+% workaround solution for Undefined procedure exception when predicate is not present in goal state
+dummyPredicates(D) => D = [$g_clear(dummy),$g_at(dummy,nowhere)].
+
+%%% type tests %%%
+is_crate(M) => member(M,crate_list()).
+crate_list() = ML => ML = get_global_map(objectsMap).get(crate).
+
+is_pallet(M) => member(M,pallet_list()).
+pallet_list() = ML => ML = get_global_map(objectsMap).get(pallet).
+
+is_surface(M) => member(M,surface_list()).
+surface_list() = ML => ML = pallet_list() ++ crate_list().
+
+
+%%% rule definition %%%
+
+/* crate with unspecified goal position:
+1) is on goodtower surface -> stay there
+2) is on badtower crate -> possible locations: current loc/ hoist / truck
+*/
+
+% determine goal surface of crate X
+mg_at(X,L) =>  (is_pallet(Y),g_on(X,Y), i_at(Y,L)); % X is supposed to be on pallet Y
+              (is_crate(Y),g_on(X,Y), mg_at(Y,L)); % X should be on crate Y
+	      (free_bot(X),i_at(X,L)). % position of X is not specified - stay on the location
+
+free_bot(X) => is_crate(X), not g_on(X,_).
+free_top(X) => is_surface(X), not g_on(_,X), not g_clear(X).
+
+% all pallets are goodtowers
+s_goodtower(X) ?=> is_pallet(X).
+
+% crate is goodtower if 
+s_goodtower(X) => is_crate(X), i_on(X,Y), s_goodtower(Y),(  % is stacked on goodtower
+			g_on(X,Y);			% should not be moved
+			(free_top(Y),free_bot(X))	% goal does not restrict what is on Y neither where X should be
+		).
+
+% crate is badtower if
+s_badtower(X) => is_crate(X), i_on(X,Y),(
+		(g_on(X,Z), Z != Y); % has to be stacked elsewhere
+		(g_on(Z,Y), Z != X); % is blocking position of some other crate	
+		g_clear(Y);          % is blocking goal for clear Y 
+		s_badtower(Y)          % is stacked on badtower
+	       ).

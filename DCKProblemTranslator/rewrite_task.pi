@@ -1,0 +1,466 @@
+/* rewriteProblem.pi by Jindrich Vodrazka
+
+   Read PDDL domain description and DCK inference rules description and write modified PDDL domain description
+   with additional DCK predicates.
+
+   Domain parser is modified version taken from pddl2pi.pi convertor by Neng-Fa Zhou.
+
+   Usage:
+      picat rewrite_task.pi DCK_inference_rules.pi input_file.pddl output_file.pddl
+
+      DCK_inference_rules.pi is partial Picat program listing DCK predicate definitions and helper predicates used for
+      DCK predicate inference.
+
+      Input file should should not contain '-' in domain,problem or object names.
+*/
+
+import os,util.
+
+
+main([DCKInitFile,InputFile,OutputFile]) =>
+	% test if the directories exists
+	if not file_exists(InputFile) then
+		printf("%s does not exist\n",InputFile),
+		print_usage(),
+		fail
+	end,
+	if not file_exists(DCKInitFile) then
+		printf("%s does not exist\n",DCKInitFile),
+		print_usage(),
+		fail
+	end,	
+	if (file(InputFile)) then
+		printf("%s -> %s %n",InputFile,OutputFile),
+		% clear global maps
+		clear(get_global_map(objectsMap)),
+		OutFD = open(OutputFile,write),
+		InFD = open(InputFile),
+		DCKName = rstrip(DCKInitFile,".pi"),
+		cl(DCKName),
+		convert(InFD,OutFD),
+		flush(OutFD),
+		close(OutFD),	
+	end.
+
+% get pddl identifier string (may contain "-" inside) from list of picat tokens
+getIdentifier(Tokens,TokensR) = Identifier =>
+	getFirstToken(Tokens,TokensR1,T),
+	getIdTokenList(TokensR1,TokensR,IdTokens,[T]),
+	StrList=[S: X in IdTokens, S = to_lowercase(to_fstring("%w",X))],
+	Identifier = join(StrList,'').
+
+getFirstToken([T|Tokens],TokensR,Token) => Token = T, TokensR = Tokens.
+
+getIdTokenList([],TokensR,IdTokens,TokensAcc) => IdTokens = TokensAcc, TokensR = [].
+
+getIdTokenList(['-',Token|Tokens],TokensR,IdTokens,TokensAcc) =>
+	TokensAcc1 = TokensAcc ++ ['-',Token],
+	getIdTokenList(Tokens,TokensR,IdTokens,TokensAcc1).
+
+getIdTokenList([T|Tokens],TokensR,IdTokens,TokensAcc) => TokensR = [T|Tokens], IdTokens = TokensAcc.
+
+% from given Arity=n prepare Argumet string in form "A1,A2,...,An" and list of n variables
+prepareArgs(Arity,ArgString,ArgList) =>
+	ArgList = new_list(Arity),
+	ArgVarNameList = [Arg: I in 1 .. Arity, Arg = to_fstring("A%u",I)],
+	ArgString = join(ArgVarNameList,',').
+
+% Term is a term with map of arguments Args.
+% Try to instantiate ArgList variables in such way that Term instance with this mapping holds.
+% e.g.: Term is parsed from "on(A1,A2)",Args = (map)['A2' = _1080,'A1' = _1018], ArgList=[_1018,_1080].
+% if on(a,b) can be entailed from known facts then _1018 = a, _1080 = b.
+checkTerm(Term,Args,ArgList) =>
+	% test to be called inside findall
+	foreach (I in 1..ArgList.length)
+		ArgList[I] = get(Args,to_atom(to_fstring("A%u",I)))
+	end,
+	Term.
+
+write_objects(OutFD,TypeList) =>
+        print(OutFD,"(:objects\n"),
+        foreach (Type in TypeList)
+		OList = get_global_map(objectsMap).get(Type),
+                foreach (Obj in OList)
+                        printf(OutFD,"%w ",Obj)
+                end,
+                printf(OutFD,"- %w\n",Type)
+        end,
+        print(OutFD,")\n").
+
+write_init_list(OutFD,InitList) =>
+	print(OutFD,"(:init\n"),
+	foreach ([Name,Args] in InitList)
+		printf(OutFD,"(%w",Name),
+		foreach (A in Args)
+			printf(OutFD," %w",A)
+		end,
+		printf(OutFD,")\n")
+	end,
+	print(OutFD,")\n").
+
+write_goal_list(OutFD,GoalList) =>
+	print(OutFD,"(:goal\n(and\n"),
+	foreach ([Name,Args] in GoalList)
+		printf(OutFD,"(%w",Name),
+		foreach (A in Args)
+			printf(OutFD," %w",A)
+		end,
+		printf(OutFD,")\n")
+	end,
+	print(OutFD,")\n)\n").
+
+% prepare predicate fact without arguments - seen as an atom
+fact_prep(F,FPrep),atomic(F) =>
+	% remove prefix
+	[_,'_'|CH] = atom_chars(F),
+	% build name without prefix from list of chars
+	Name = to_atom(CH),
+	FPrep = [Name,[]].
+
+% prepare function assignment fact
+fact_prep(F,FPrep),struct(F),name(F)=='assign_fn' =>
+	$assign_fn(Name,Args,Val) = F,
+	if length(Args) == 0 then
+		FPrep = [to_atom("="),[to_atom(to_fstring("(%w)",Name)),Val]]
+	else
+		ArgVarNameList = [Arg: A in Args, Arg = to_fstring("%w",A)],
+		ArgString = join(ArgVarNameList,' '),
+		FPrep = [to_atom("="),[to_atom(to_fstring("(%w %s)",Name,ArgString)),Val]]
+	end.
+
+% prepare predicate fact
+fact_prep(F,FPrep),struct(F) =>
+	% read arguments
+	Args = to_list(F),
+	% read name with prefix "i_" or "g_"
+	PrefName = name(F),
+	% remove prefix
+	[_,'_'|CH] = atom_chars(PrefName),
+	% build name without prefix from list of chars
+	Name = to_atom(CH),
+	FPrep = [Name,Args].
+
+% copy atomic fact e.g.: g_handempty
+fact_copy(F,FPrep),atomic(F) =>
+	FPrep = [F,[]].
+
+% copy goal fact e.g.: g_on(b1,b2)
+fact_copy(F,FPrep),struct(F) =>
+	% read arguments
+	Args = to_list(F),
+	Name = name(F),
+	FPrep = [Name,Args].
+
+print_usage() =>
+	printf("Usage:\n"),
+	printf("picat rewriteProblem.pi dck_init.pi input_problem.pddl output_problem.pddl\n").
+
+convert(InFD,OutFD) =>
+	read_tokens(InFD,Tokens0),
+    	%hyphon_to_underscore(Tokens0,Tokens1),
+	parse_prob(OutFD,Tokens0).
+
+% parsing problem - walk through all tokens until last parenthesis that matches "(define"
+parse_prob(_OutFD,[')']) => true.
+
+% define keyword
+parse_prob(OutFD,['(',define|Tokens]) =>
+    print(OutFD,"(define\n"),
+    parse_prob(OutFD,Tokens),
+    print(OutFD,")").
+
+parse_prob(OutFD,['(',':',domain|Tokens]) =>
+    print(OutFD,"(:domain "),
+    parse_string_first_part(OutFD,Tokens,Tokens1),
+    print(OutFD,")"),
+    parse_prob(OutFD,Tokens1).
+
+% problem keyword
+parse_prob(OutFD,['(',problem|Tokens]) =>
+    print(OutFD,"(problem "),
+    parse_problem_name(OutFD,Tokens,Tokens1),
+    print(OutFD,")\n"),
+    parse_prob(OutFD,Tokens1).
+
+% metric specification
+parse_prob(OutFD,['(',:,metric|Tokens]) =>
+%    print(OutFD,"(:metric "),
+    MetricSpecString = get_metric_spec_str(Tokens,TokensR),
+%    printf(OutFD,MetricSpecString),
+%    print(OutFD,")\n"),
+    printf("Ignoring metric spec."),
+    parse_prob(OutFD,TokensR).
+
+parse_prob(OutFD,Tokens) =>
+	% read objects (initialize global map objectsMap)
+	ObjectList = get_objects(Tokens,Tokens0),
+	hyphon_to_underscore(Tokens0,Tokens1),
+	% read init & goal
+	InitFacts = get_init_facts(Tokens1,Tokens2),
+	GoalFacts = get_goal_facts(Tokens2,Tokens3),
+	% workaround for dummy predicates
+	dummyPredicates(Dummy), % defined in DCK file
+	% load facts
+	Facts = InitFacts ++ GoalFacts ++ Dummy,
+	cl_facts(Facts),
+	% define new constants and add them to global map
+	addTypeList(NewTypes),
+	foreach (T in NewTypes)
+		% initialize constants
+		getConstants(T,ConstList), % defined in DCK file
+		get_global_map(objectsMap).put(T,ConstList)	
+	end,
+
+	% get list of all types
+	Types = get_global_map(objectsMap).keys(),
+ 	% write objects from global map	
+	write_objects(OutFD,Types),
+
+	% get list of predicates to be cloned from goal specification to init state
+	goalCopyList(CopyFromGoal),
+	% copy g_ predicates
+	GoalCopy = [GoalF: Fact in GoalFacts, FactName = name(Fact), member(FactName,CopyFromGoal), fact_copy(Fact,GoalF)],
+	% inference of DCK predicates
+	InitList = [InitF: Fact in InitFacts, fact_prep(Fact,InitF)] ++ GoalCopy,
+	predicateList(Predicates), % defined in DCK file
+	foreach (P in Predicates)
+		pred_arity(P,Arity),
+		if (Arity >= 1) then
+			prepareArgs(Arity,ArgString,ArgList),
+			TermStr = atom_chars(P) ++ to_fstring("(%s)",ArgString),
+			%printf("%w\n",TermStr),
+			parse_term(TermStr,Term,Args),
+			InstList = findall(ArgList,checkTerm(Term,Args,ArgList)),
+			NewFacts = remove_dups([[P,IL]: IL in InstList])
+		else
+			%printf("%w\n",P),
+			NewFacts = [[P,[]]] 
+		end,
+		InitList := InitList ++ NewFacts
+	end,
+	%print("Inference loop done.\n"),	
+	% write initial facts together with infered DCK facts
+	write_init_list(OutFD,InitList),
+	% write goal facts
+	GoalList = [GoalF: Fact in GoalFacts, fact_prep(Fact,GoalF)],
+	write_goal_list(OutFD,GoalList),
+	parse_prob(OutFD,Tokens3).
+
+% parse problem name
+parse_problem_name(_OutFD,[')'|Tokens],TokensR) => TokensR=Tokens.
+parse_problem_name(OutFD,[Part|Tokens],TokensR) =>
+    write_name(OutFD,Part),
+    parse_problem_name(OutFD,Tokens,TokensR).
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+atomToLowercase(Atom) = LAtom =>
+	Chars = atom_chars(Atom),
+	LAtom = to_atom(Chars.to_lowercase()).
+
+get_objects(['(',:,objects|Tokens],Tokens1) = ObjectList =>
+	parse_obj_list(Tokens,Tokens1,[],[],ObjectList).
+
+% Accumulate sets of objects with same type
+parse_obj_list([')'|Tokens],TokensR,_,ObjectsSetAcc,ObjectsSets) => TokensR = Tokens, ObjectsSets = ObjectsSetAcc.
+
+% Record type of previously accumulated set of objects
+% TEST: no types
+parse_obj_list([-|Tokens],TokensR,Objects,ObjectsSetAcc,ObjectsSets) =>
+	LType = to_atom(getIdentifier(Tokens,TokensR1)),
+	TypeSetPair = [Objects,LType],
+	% add objects to global map
+	if (get_global_map(objectsMap).has_key(LType)) then
+		OrigList = get_global_map(objectsMap).get(LType),
+		NewList = OrigList ++ Objects,
+		get_global_map(objectsMap).put(LType,NewList)	
+	else
+		get_global_map(objectsMap).put(LType,Objects),
+	end,
+	ObjectsSetAcc1 = [TypeSetPair|ObjectsSetAcc],
+	parse_obj_list(TokensR1,TokensR,[],ObjectsSetAcc1,ObjectsSets).
+
+% Accumulate object
+parse_obj_list([Obj|Tokens],TokensR,Objects,ObjectsSetAcc,ObjectsSets) =>
+	ObjectsRes = [Obj|Objects],
+	parse_obj_list(Tokens,TokensR,ObjectsRes,ObjectsSetAcc,ObjectsSets).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+get_init_facts(['(',:,init|Tokens],TokensR) = InitFacts =>
+	parse_init(Tokens,TokensR,InitFacts,[]).
+
+% init facts closing bracket
+parse_init([')'|Tokens],TokensR,Atoms,AtomsAcc) => TokensR = Tokens, Atoms = AtomsAcc.
+
+% parse function value assignment
+parse_init(['(',=|Tokens],TokensR,Atoms,AtomsAcc) =>
+    % parse function with arguments
+    Func = get_function_instance(Tokens,TR1),
+    AtomsAcc1 = [Func|AtomsAcc],
+    parse_init(TR1,TokensR,Atoms,AtomsAcc1).
+
+% fact with no args
+parse_init(['(',Name,')'|Tokens],TokensR,Atoms,AtomsAcc) =>
+    make_atom("i_",Name,NewAtom),
+    AtomsAcc1 = [NewAtom|AtomsAcc],
+    parse_init(Tokens,TokensR,Atoms,AtomsAcc1).
+
+% fact with args
+parse_init(['(',Name|Tokens],TokensR,Atoms,AtomsAcc) =>
+    parse_fact_args(Tokens,Tokens1,Args,[]),
+    % Args initialized
+    make_atom("i_",Name,AtomName),
+    NewAtom = new_struct(AtomName,Args),
+    AtomsAcc1 = [NewAtom|AtomsAcc],
+    parse_init(Tokens1,TokensR,Atoms,AtomsAcc1).
+
+parse_init(Tokens,_TokensR, Atoms, AtomsAcc) =>
+    throw($token_expected('(',Tokens)).
+
+% return function in form:
+% assign_fn(fname,argList,value)
+get_function_instance(Tokens,TokensR) = Inst =>
+	parse_function(Tokens,TokensR,Name,ArgList,Value,[],[]),
+	Inst = $assign_fn(Name,ArgList,Value).
+
+% closing bracket
+parse_function([')',Val,')'|Tokens],TokensR,Name,ArgList,Value,NameAcc,ArgAcc) =>
+	Name = NameAcc,
+	Value = Val,
+	ArgList = ArgAcc,
+	TokensR = Tokens.
+	
+
+% function without arguments
+parse_function(['(',FName,')',Val,')'|Tokens],TokensR,Name,ArgList,Value,_,_) =>
+	Name = FName,
+	Value = Val,
+	ArgList = [],
+	TokensR = Tokens.
+
+% parse function name
+parse_function(['(',FName|Tokens],TokensR,Name,ArgList,Value,NameAcc,ArgAcc) =>
+	parse_function(Tokens,TokensR,Name,ArgList,Value,FName,[]).
+
+% parse arguments
+parse_function([Arg|Tokens],TokensR,Name,ArgList,Value,NameAcc,ArgAcc) =>
+	ArgAcc1 = ArgAcc ++ [Arg],
+	parse_function(Tokens,TokensR,Name,ArgList,Value,NameAcc,ArgAcc1).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+get_goal_facts(['(',:,goal,'(',and|Tokens],TokensR) = GoalFacts =>
+	parse_goal(Tokens,TokensR,GoalFacts,[]).
+
+% goal facts closing brackets
+parse_goal([')',')'|Tokens],TokensR,Atoms,AtomsAcc) => TokensR = Tokens, Atoms = AtomsAcc.
+
+% fact with no args
+parse_goal(['(',Name,')'|Tokens],TokensR,Atoms,AtomsAcc) =>
+    make_atom("g_",Name,NewAtom),
+    AtomsAcc1 = [NewAtom|AtomsAcc],
+    parse_goal(Tokens,TokensR,Atoms,AtomsAcc1).
+
+% fact with args
+parse_goal(['(',Name|Tokens],TokensR,Atoms,AtomsAcc) =>
+    parse_fact_args(Tokens,Tokens1,Args,[]),
+    % Args initialized
+    make_atom("g_",Name,AtomName),
+    NewAtom = new_struct(AtomName,Args),
+    AtomsAcc1 = [NewAtom|AtomsAcc],
+    parse_goal(Tokens1,TokensR,Atoms,AtomsAcc1).
+
+parse_goal(Tokens,_TokensR, Atoms, AtomsAcc) =>
+    throw($token_expected('(',Tokens)).
+
+
+parse_fact_args([')'|Tokens],TokensR,ArgList,ArgAcc) =>
+	TokensR = Tokens, ArgList = reverse(ArgAcc).
+parse_fact_args([Arg|Tokens],TokensR,ArgList,ArgAcc) =>
+	ArgAcc1 = [Arg|ArgAcc],
+	parse_fact_args(Tokens,TokensR,ArgList,ArgAcc1).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% metric function and metric specification closing parenthesis
+parse_metric_spec([')',')'|Tokens],TokensR,TList,TAcc) =>
+	TokensR = Tokens,
+	TList = TAcc ++ [')'].
+
+% accumulate all tokens
+parse_metric_spec([Tok|Tokens],TokensR,TList,TAcc) =>
+	TAcc1 = TAcc ++ [Tok],
+	parse_metric_spec(Tokens,TokensR,TList,TAcc1).
+
+% get string from metric specification
+get_metric_spec_str(Tokens,TokensR) = MetricStr =>
+	parse_metric_spec(Tokens,TokensR,TList,[]),
+	TStrList = [TStr: T in TList, TStr = to_fstring("%w",T)],
+	MetricStr = join(TStrList,'').
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+parse_string_first_part(_OutFD,[')'|Tokens],TokensR) =>
+    TokensR = Tokens.
+
+parse_string_first_part(OutFD,[Arg|Tokens],TokensR) =>
+    write_name(OutFD,Arg),
+    parse_string_parts(OutFD,Tokens,TokensR).
+
+parse_string_parts(OutFD,[')'|Tokens],TokensR) =>
+    TokensR = Tokens.
+
+parse_string_parts(OutFD,[Arg|Tokens],TokensR) =>
+    write_name(OutFD,Arg),
+    parse_string_parts(OutFD,Tokens,TokensR).
+
+%--------------
+
+
+
+write_name(OutFD,Name),atom(Name) =>
+    atom_chars(Name) = Chars,
+    printf(OutFD,"%s",Chars.to_lowercase()).
+write_name(OutFD,Name) =>
+    print(OutFD,Name).
+	
+write_name_prefix(OutFD,Name,Prefix),atom(Name) =>
+    atom_chars(Name) = Chars,
+    printf(OutFD,"%s",Prefix ++ Chars.to_lowercase()).
+write_name_prefix(OutFD,Name,Prefix) =>
+    print(OutFD,Prefix ++ Name).
+
+make_atom(Prefix,Name,Atom),atom(Name) =>
+    atom_chars(Name) = Chars,
+    AtomString = Prefix ++ Chars.to_lowercase(),
+    Atom = to_atom(AtomString).
+make_atom(Prefix,Name,Atom) =>
+    Atom = to_atom(Prefix ++ Name).
+
+
+read_tokens(InFD,Tokens) =>
+    read_tokens(InFD,read_picat_token(InFD),Tokens).
+
+read_tokens(InFD,end_of_file,Tokens) => Tokens=[], close(InFD).
+read_tokens(InFD,';',Tokens) => 
+    Char = read_char(InFD),
+    while (Char !== '\n', Char !== end_of_file)
+        Char := read_char(InFD)
+    end,
+    read_picat_token(InFD) = NextToken,   
+    read_tokens(InFD,NextToken,Tokens).
+read_tokens(InFD,Token,Tokens) => 
+    Tokens=[Token|Tokens1],
+    read_picat_token(InFD) = NextToken,   
+    read_tokens(InFD,NextToken,Tokens1).
+
+hyphon_to_underscore([A,'-',B,C|Tokens0],Tokens1),atom(A),integer(B),atom(C) =>
+    Str = (A.to_string()++"_"++B.to_string()++C.to_string()),
+    hyphon_to_underscore([Str.to_atom()|Tokens0],Tokens1).
+hyphon_to_underscore([A,'-',B|Tokens0],Tokens1) =>
+    Str = (A.to_string()++"_"++B.to_string()),
+    hyphon_to_underscore([Str.to_atom()|Tokens0],Tokens1).
+hyphon_to_underscore([A|Tokens0],Tokens1) =>
+    Tokens1=[A|Tokens2],
+    hyphon_to_underscore(Tokens0,Tokens2).
+hyphon_to_underscore([],Tokens1) => Tokens1=[].
+

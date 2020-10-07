@@ -1,0 +1,77 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [dck_make_gluten_free,min_cnt,next,mGlutenFreeS,mNormalS,mToServeS].
+
+% arity for each added predicate
+table
+pred_arity(dck_make_gluten_free,1).
+pred_arity(min_cnt,1).
+pred_arity(next,2).
+pred_arity(mGlutenFreeS,1).
+pred_arity(mNormalS,1).
+pred_arity(mToServeS,2).
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [].
+
+% additional types we need to define
+addTypeList(TL) => TL = [count].
+
+%%% constant definitions %%%
+% we need list of constants for each new type
+
+getConstants(count,List) =>
+	MinCount = 0,
+	MaxCount = max_cnt(),
+	NumList = [X: X in MinCount .. MaxCount],
+	List = [Sym: Cnt in NumList, Sym = to_atom(to_fstring("c%u",Cnt))].
+
+
+max_cnt() = Res  => C1 = length(findall(N,(i_not_allergic_gluten(N)))),C2 = length(findall(N,(i_allergic_gluten(N)))),C3=max(findall(Count,mToServeNum(_,Count))), C4=max(C1,C2),Res=max(C4,C3).
+
+% workaround solution for Undefined procedure exception when predicate is not present in goal state
+dummyPredicates(D) => D = [].
+
+%%% type tests %%%
+%is_not_allergic_gluten(M) => member(M,not_allergic_gluten_list()).
+%not_allergic_gluten_list() = ML => ML = get_global_map(objectsMap).get(not_allergic_gluten).
+%
+%is_allergic_gluten(M) => member(M,allergic_gluten_list()).
+%allergic_gluten_list() = ML => ML = get_global_map(objectsMap).get(allergic_gluten).
+%
+%is_waiting(M) => member(M,waiting_list()).
+%waiting_list() = ML => ML = get_global_map(objectsMap).get(waiting).
+
+is_child(M) => member(M,child_list()).
+child_list() = ML => ML = get_global_map(objectsMap).get(child).
+
+is_place(M) => member(M,place_list() ++ [kitchen]).
+place_list() = ML => ML = get_global_map(objectsMap).get(place).
+
+is_tray(M) => member(M,tray_list()).
+tray_list() = ML => ML = get_global_map(objectsMap).get(tray).
+
+is_count(M) => member(M,count_list()).
+count_list() = ML => ML = get_global_map(objectsMap).get(count).
+
+%%% rule definition %%%
+dck_make_gluten_free(Tray)=> [ATray|_] = tray_list(), Tray = ATray.
+
+%counts
+
+mGlutenFreeS(GF) => Cnt = length([Ch: Ch in child_list(),i_allergic_gluten(Ch)]), GF = to_fstring("c%u",Cnt). 
+mNormalS(GF) => Cnt = length([Ch: Ch in child_list(),i_not_allergic_gluten(Ch)]), GF = to_fstring("c%u",Cnt). 
+
+mToServeS(Table,CntSym) => is_place(Table), Cnt = length([S: S in child_list(), i_waiting(S,Table)]), CntSym = to_fstring("c%u",Cnt). 
+mToServeNum(Table,Cnt) => is_place(Table), Cnt = length([S: S in child_list(), i_waiting(S,Table)]). 
+
+% define minimal counter
+min_cnt(MC) => MC = c0.
+
+
+% helper function to construct list of pairs 
+next_pairs() = Pairs =>
+	CountList = count_list(),
+	Pairs = zip(CountList,tail(CountList)).
+
+% define next_cnt
+next(Prev,Next) => P = next_pairs(), member({Prev,Next},P).

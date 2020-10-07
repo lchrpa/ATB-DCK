@@ -1,0 +1,6 @@
+make_sandwich_no_gluten 3
+make_sandwich 3
+put_on_tray 2
+serve_sandwich_no_gluten 4
+serve_sandwich 4
+move_tray 3

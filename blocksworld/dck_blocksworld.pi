@@ -1,0 +1,61 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [badtower,goodtower,mg_Stacked].
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [g_on,g_ontable,g_clear].
+
+% additional types we need to define
+addTypeList(TL) => TL = [].
+
+% workaround: add each predicate not found in goal facts of original problems as dummy predicate
+dummyPredicates(D) => D = [$g_ontable(dummy),$g_clear(dummy)]. 
+
+% arity for each added predicate
+table
+pred_arity(badtower,1).
+pred_arity(goodtower,1).
+pred_arity(mg_Stacked,1).
+
+
+%%% DCK inference rules %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% X is on table
+badtower(X) ?=> i_ontable(X),g_on(X,_). % *
+% X is on some crate Y  
+badtower(X) => is_block(Y),i_on(X,Y),
+               ( (g_ontable(X));            % should be on table *
+                 (g_on(Z,Y), Z != X);     % blocks position of some other crate *
+                 (g_on(X,Z),Y != Z);      % should be on Z instead *
+		 g_clear(Y);              % conflicts with goal condition
+                 badtower(Y)              % Y is badtower *
+               ).
+
+% X is on table
+goodtower(X) ?=> i_ontable(X),
+		 ( (g_ontable(X));  % should be on table *
+                   (mg_FreeBot(X)) % target position is not specified *
+                 ).
+
+% X is on some other crate Y
+goodtower(X) => is_block(Y),i_on(X,Y),goodtower(Y),
+		(
+                  g_on(X,Y);                     % Y is target destination and is goodtower
+		  (mg_FreeBot(X), mg_FreeTop(Y)) % position of X is not specified
+                                                                            % there are no requirements on top surface of Y
+                                                                            % and X is goodtower 
+            	).
+
+%%% type tests %%%
+is_block(M) => member(M,block_list()).
+block_list() = ML => ML = get_global_map(objectsMap).get(block).
+
+mg_Stacked(X) => is_block(X), g_on(X,_).
+
+% goal does not specify any conditions about bottom surface of X
+% nothing is required to be stacked under X neither is required that X is ontable
+mg_FreeBot(X) => is_block(X), not g_on(X,_), not g_ontable(X).
+
+% goal does not specify any conditions about top surface of X
+% nothing is required to be stacked on X neither is required that X is clear
+mg_FreeTop(X) => is_block(X), not g_on(_,X), not g_clear(X). 
