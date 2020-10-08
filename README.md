@@ -1,6 +1,6 @@
 # Attributed Transition-based Domain Control Knowledge (ATB-DCK)
-
-# Contact author: Lukas Chrpa, chrpaluk@fel.cvut.cz
+### Lukas Chrpa, Roman Bartak, Jindrich Vodrazka, Marta Vomlelova: Attributed Transition-based Domain Control Knowledge for Domain-Independent Planning, *IEEE Transactions on Knowledge and Data Engineering*
+###### Contact author: Lukas Chrpa, chrpaluk@fel.cvut.cz
 
 Each domain folder contains the following items:
 
