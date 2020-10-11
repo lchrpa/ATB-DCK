@@ -51,18 +51,6 @@
                 )
 )
 
-;(:action _DCK-from-pickup-2
-;        :parameters (?l - location ?m - man  ?c - count)
-;        :precondition (and                  
-;                           (min_cnt ?c)
-;                           (need_cnt ?c)
-;                           (dck_collecting ?m ?l)
-;                      )
-;        :effect (and (dck_default ?m)
-;                     (not (dck_collecting ?m ?l))
-;                )
-;)
-
 
 (:action _DCK-to-tighten
         :parameters (?l - location ?m - man ?n - nut ?c - count)
@@ -78,17 +66,6 @@
                 )
 )
 
-;(:action _DCK-from-tighten
-;        :parameters (?l - location ?m - man  ?c - count)
-;        :precondition (and                  
-;                           (min_cnt ?c)
-;                           (nuts_cnt ?l ?c)
-;                           (dck_tightening ?m ?l)
-;                      )
-;        :effect (and (dck_default ?m)
-;                     (not (dck_tightening ?m ?l))
-;                )
-;)
 
                                                                                       
 (:action walk_DCK
