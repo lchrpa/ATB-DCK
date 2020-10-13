@@ -1,0 +1,30 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [dck_start,mUnused].
+
+% arity for each added predicate
+table
+pred_arity(dck_start,0).
+pred_arity(mUnused,1).
+
+% additional types we need to define
+addTypeList(TL) => TL = [].
+
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [].
+
+% workaround solution for Undefined procedure exception when predicate is not present in goal state
+dummyPredicates(D) => D = [].
+
+%%% type tests %%%
+is_shot(M) => member(M,shot_list()).
+shot_list() = ML => ML = get_global_map(objectsMap).get(shot).
+
+
+%%% rule definition %%%
+
+% all shots are unused
+mUnused(M) => is_shot(M).
+
+% start state without parameters
+dck_start.

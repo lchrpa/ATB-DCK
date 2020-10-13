@@ -1,0 +1,74 @@
+% new predicates we want to add to init state
+predicateList(X) => X = [dck_idle,dck_loading,dck_unloading,mIdle,mCarry,next,min].
+%gAt
+% arity for each added predicate
+table
+pred_arity(dck_idle,0).
+pred_arity(dck_loading,2).
+pred_arity(dck_unloading,2).
+pred_arity(mIdle,2).
+pred_arity(mCarry,2).
+pred_arity(next,2).
+pred_arity(min,1).
+
+% goal predicates we want to copy to init state
+goalCopyList(X) => X = [at].
+%[at-robby, at,free,carry].
+%[at,goal,inc,free,carry,fromto,wait]
+% additional types we need to define
+addTypeList(TL) => TL = [num].
+
+%%% constant definitions %%%
+% we need list of constants for each new type
+
+getConstants(num,List) =>
+	MinCount = 0,
+	MaxCount = 2,
+	NumList = [X: X in MinCount .. MaxCount],
+	List = [Sym: Cnt in NumList, Sym = to_atom(to_fstring("c%u",Cnt))].
+
+% workaround solution for Undefined procedure exception when predicate is not present in goal state
+dummyPredicates(D) => D = [].
+
+%%% type tests %%%
+is_robot(M) => member(M,robot_list()).
+robot_list() = ML => ML = get_global_map(objectsMap).get(robot).
+
+is_object(M) => member(M,object_list()).
+object_list() = ML => ML = get_global_map(objectsMap).get(object).
+
+is_gripper(M) => member(M,gripper_list()).
+gripper_list() = ML => ML = get_global_map(objectsMap).get(gripper).
+
+is_room(M) => member(M,room_list()).
+room_list() = ML => ML = get_global_map(objectsMap).get(room).
+
+is_num(M) => member(M,num_list()).
+num_list() = ML => ML = get_global_map(objectsMap).get(num).
+
+%%% rule definition %%%
+
+% init
+dck_idle.
+
+mIdle(Ball,Room)=>i_at(Ball,Room).
+mCarry(Robot,Min)=>is_robot(Robot),min(Min).
+
+% define minimal counter
+min(MC) => MC = c0.
+% define next_cnt
+next(Prev,Next) => P = next_pairs(), member({Prev,Next},P).
+
+% helper function to construct list of pairs 
+next_pairs() = Pairs =>
+	CountList = num_list(),
+	Pairs = zip(CountList,tail(CountList)).
+
+% define maximal counter
+%need_cnt(NC) => NC = to_fstring("c%u",tightened_nut_cnt()).
+
+% count spanners for each location
+%spanner_cnt(Loc,CntSym) => is_location(Loc), Cnt = length(findall(S,(is_spanner(S),i_at(S,Loc)))), CntSym = to_fstring("c%u",Cnt). 
+
+% count nuts for each location
+%nuts_cnt(Loc,CntSym) => is_location(Loc), Cnt = length(findall(N,(is_nut(N),i_at(N,Loc)))), CntSym = to_fstring("c%u",Cnt). 
